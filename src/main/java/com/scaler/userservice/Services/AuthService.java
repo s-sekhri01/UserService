@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.MultiValueMapAdapter;
@@ -25,11 +26,13 @@ import java.util.UUID;
 public class AuthService {
     private UserRepository userRepository;
     private SessionRepository sessionRepository;
+    private BCryptPasswordEncoder bCryptPasswordEncoder;
 
     @Autowired
-    public AuthService(UserRepository userRepository, SessionRepository sessionRepository) {
+    public AuthService(UserRepository userRepository, SessionRepository sessionRepository, BCryptPasswordEncoder bCryptPasswordEncoder) {
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
+        this.bCryptPasswordEncoder = bCryptPasswordEncoder;
     }
 
 
@@ -38,6 +41,9 @@ public class AuthService {
         if (optUser.isEmpty()) return null;
 
         User user = optUser.get();
+        if (!bCryptPasswordEncoder.matches(password, user.getPassword())){
+            throw new RuntimeException("Password / username does not match");
+        }
         String token = RandomStringUtils.randomAlphanumeric(30);
 
         Session session = new Session();
@@ -72,7 +78,7 @@ public class AuthService {
     public ResponseEntity<SignupResponseDTO> signup(String email, String password) {
         User user = new User();
         user.setUsername(email);
-        user.setPassword(password);
+        user.setPassword(bCryptPasswordEncoder.encode(password));
         User savedUser = userRepository.save(user);
         SignupResponseDTO response = new SignupResponseDTO();
         response.setUserId(user.getUuid());
