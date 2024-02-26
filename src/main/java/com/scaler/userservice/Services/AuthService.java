@@ -7,6 +7,9 @@ import com.scaler.userservice.Models.SessionStatus;
 import com.scaler.userservice.Models.User;
 import com.scaler.userservice.Respositories.SessionRepository;
 import com.scaler.userservice.Respositories.UserRepository;
+import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.Jws;
+import io.jsonwebtoken.Jwts;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -17,22 +20,23 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.MultiValueMap;
 import org.springframework.util.MultiValueMapAdapter;
 
-import java.util.Date;
-import java.util.HashMap;
-import java.util.Optional;
-import java.util.UUID;
+import javax.crypto.SecretKey;
+import java.time.LocalDate;
+import java.util.*;
 
 @Service
 public class AuthService {
     private UserRepository userRepository;
     private SessionRepository sessionRepository;
     private BCryptPasswordEncoder bCryptPasswordEncoder;
+    private SecretKey secretKey;
 
     @Autowired
     public AuthService(UserRepository userRepository, SessionRepository sessionRepository, BCryptPasswordEncoder bCryptPasswordEncoder) {
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
+        secretKey = Jwts.SIG.HS256.key().build();
     }
 
 
@@ -44,7 +48,18 @@ public class AuthService {
         if (!bCryptPasswordEncoder.matches(password, user.getPassword())){
             throw new RuntimeException("Password / username does not match");
         }
-        String token = RandomStringUtils.randomAlphanumeric(30);
+//        String token = RandomStringUtils.randomAlphanumeric(30);
+
+        Map<String, Object> jwtData = new HashMap<>();
+        jwtData.put("email", email);
+        jwtData.put("createdAt", new Date());
+        jwtData.put("expiryAt", new Date(LocalDate.now().plusDays(3).toEpochDay()));
+
+        String token = Jwts
+                .builder()
+                .claims(jwtData)
+                .signWith(secretKey)
+                .compact();
 
         Session session = new Session();
         session.setStatus(SessionStatus.ACTIVE);
@@ -59,7 +74,7 @@ public class AuthService {
         response.setRoles(user.getRoles());
 
         MultiValueMap<String, String> headers = new MultiValueMapAdapter<>(new HashMap<>());
-        headers.add(HttpHeaders.SET_COOKIE, "auth-token" + token);
+        headers.add(HttpHeaders.SET_COOKIE, "auth-token:" + token);
 
         return new ResponseEntity<LoginResponseDTO>(response, headers, HttpStatus.OK);
     }
@@ -93,6 +108,17 @@ public class AuthService {
         Optional<Session> optSession = sessionRepository.findByToken(token);
         if (optSession.isEmpty()) return SessionStatus.ENDED;
         Session session = optSession.get();
+
+        //Write logic for JWT verification
+        Jws<Claims> claimsJws = Jwts
+                .parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token);
+
+        // if a signature exception has occured then do not trust the token and return the session has ended.
+        // also if the current date is greated than expiry at. return ended.
+        // while calling from productservice session status would not be enough, rather return whole session object and JWT token with roles and other details
         return session.getStatus();
     }
 }
