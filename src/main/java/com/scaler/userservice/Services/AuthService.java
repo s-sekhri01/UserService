@@ -1,6 +1,10 @@
 package com.scaler.userservice.Services;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.scaler.userservice.Clients.KafkaProducerClient;
 import com.scaler.userservice.DTOs.LoginResponseDTO;
+import com.scaler.userservice.DTOs.SendEmailMessageDTO;
 import com.scaler.userservice.DTOs.SignupResponseDTO;
 import com.scaler.userservice.Models.Session;
 import com.scaler.userservice.Models.SessionStatus;
@@ -10,7 +14,6 @@ import com.scaler.userservice.Respositories.UserRepository;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jws;
 import io.jsonwebtoken.Jwts;
-import org.apache.commons.lang3.RandomStringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -30,12 +33,20 @@ public class AuthService {
     private SessionRepository sessionRepository;
     private BCryptPasswordEncoder bCryptPasswordEncoder;
     private SecretKey secretKey;
+    private KafkaProducerClient kafkaProducerClient;
+    private ObjectMapper objectMapper;
 
     @Autowired
-    public AuthService(UserRepository userRepository, SessionRepository sessionRepository, BCryptPasswordEncoder bCryptPasswordEncoder) {
+    public AuthService(UserRepository userRepository,
+                       SessionRepository sessionRepository,
+                       BCryptPasswordEncoder bCryptPasswordEncoder,
+                       KafkaProducerClient kafkaProducerClient,
+                       ObjectMapper objectMapper) {
         this.userRepository = userRepository;
         this.sessionRepository = sessionRepository;
         this.bCryptPasswordEncoder = bCryptPasswordEncoder;
+        this.kafkaProducerClient = kafkaProducerClient;
+        this.objectMapper = objectMapper;
         secretKey = Jwts.SIG.HS256.key().build();
     }
 
@@ -45,7 +56,7 @@ public class AuthService {
         if (optUser.isEmpty()) return null;
 
         User user = optUser.get();
-        if (!bCryptPasswordEncoder.matches(password, user.getPassword())){
+        if (!bCryptPasswordEncoder.matches(password, user.getPassword())) {
             throw new RuntimeException("Password / username does not match");
         }
 //        String token = RandomStringUtils.randomAlphanumeric(30);
@@ -81,7 +92,7 @@ public class AuthService {
 
     public void logout(String token, UUID userId) {
         Optional<User> optUser = userRepository.findById(userId);
-        if(optUser.isEmpty()) return;
+        if (optUser.isEmpty()) return;
         Optional<Session> optSession = sessionRepository.findByToken(token);
         if (optSession.isEmpty()) return;
         Session session = optSession.get();
@@ -90,11 +101,19 @@ public class AuthService {
         sessionRepository.save(session);
     }
 
-    public ResponseEntity<SignupResponseDTO> signup(String email, String password) {
+    public ResponseEntity<SignupResponseDTO> signup(String email, String password) throws JsonProcessingException {
         User user = new User();
         user.setUsername(email);
         user.setPassword(bCryptPasswordEncoder.encode(password));
         User savedUser = userRepository.save(user);
+        SendEmailMessageDTO sendEmailMessageDTO = new SendEmailMessageDTO();
+        sendEmailMessageDTO.setTo(savedUser.getUsername());
+        sendEmailMessageDTO.setFrom("saranshsekhri@gmail.com");
+        sendEmailMessageDTO.setSubject("Welcome");
+        sendEmailMessageDTO.setBody("Welcome to Ecommerce Platform");
+        kafkaProducerClient.sendMessage("sendEmail",
+                objectMapper.writeValueAsString(sendEmailMessageDTO));
+
         SignupResponseDTO response = new SignupResponseDTO();
         response.setUserId(user.getUuid());
         response.setEmail(user.getUsername());
@@ -104,7 +123,7 @@ public class AuthService {
 
     public SessionStatus validate(UUID userId, String token) {
         Optional<User> optUser = userRepository.findById(userId);
-        if(optUser.isEmpty()) return SessionStatus.ENDED;
+        if (optUser.isEmpty()) return SessionStatus.ENDED;
         Optional<Session> optSession = sessionRepository.findByToken(token);
         if (optSession.isEmpty()) return SessionStatus.ENDED;
         Session session = optSession.get();

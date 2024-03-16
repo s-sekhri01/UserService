@@ -1,5 +1,6 @@
 package com.scaler.userservice.Controllers;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.scaler.userservice.DTOs.*;
 import com.scaler.userservice.Models.SessionStatus;
 import com.scaler.userservice.Services.AuthService;
@@ -33,7 +34,7 @@ public class AuthController {
     }
 
     @PostMapping("/signup")
-    private ResponseEntity<SignupResponseDTO> signup(@RequestBody SignupRequestDTO request) {
+    private ResponseEntity<SignupResponseDTO> signup(@RequestBody SignupRequestDTO request) throws JsonProcessingException {
         return authService.signup(request.getEmail(), request.getPassword());
     }
 
